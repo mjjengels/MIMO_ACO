@@ -110,7 +110,7 @@ def mimo_detection(H, y, s, n_randomizations=200, verbose=False):
     t_rank1 = x_rank1[-1]
     s_rank1 = np.sign(x_rank1[:ntx] * t_rank1)
 
-    residual_rank1 = y - H @ s_rank1
+    residual_rank1 = np.abs(y - H @ s_rank1)
     cost_rank1 = float(np.dot(residual_rank1, residual_rank1))
 
     # ---- Gaussian randomization (stochastic) ----
@@ -141,7 +141,7 @@ def mimo_detection(H, y, s, n_randomizations=200, verbose=False):
         t_cand = x_candidate[-1]
         s_cand = np.sign(x_candidate[:ntx] * t_cand)
 
-        residual = y - H @ s_cand
+        residual = np.abs(y - H @ s_cand)
         cost = float(np.dot(residual, residual))
 
         if cost < best_cost:
@@ -154,12 +154,6 @@ def mimo_detection(H, y, s, n_randomizations=200, verbose=False):
 
     return best_s, best_cost
 
-
-# ---- Experiment parameters ----
-seed = 42
-n_randomizations = 200
-
-
 print("=== MIMO instance ===")
 print(f"H shape: {H.shape}")
 print(f"True symbols s_true: {s_true}")
@@ -168,7 +162,7 @@ print(f"Noise std: {SNR_dB:.4f}")
 # ---- Solve SDR-based detector ----
 print("Running SDR-based detector...")
 s_sdr, sdr_cost = mimo_detection(
-    H, y, s_true, n_randomizations=n_randomizations, verbose=True
+    H, y, s_true, 50, verbose=True
 )
 print(f"SDR solution s_sdr:   {s_sdr}")
 print(f"SDR cost ||y - Hs||^2: {sdr_cost:.6f}")
@@ -177,5 +171,3 @@ print(f"SDR cost ||y - Hs||^2: {sdr_cost:.6f}")
 symbol_error = int(np.sum(np.abs(s_sdr - s_true) > 1e-5))
 print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
 print(np.sum(s_true - s_sdr))
-
-
