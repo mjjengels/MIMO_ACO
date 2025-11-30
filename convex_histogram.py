@@ -153,10 +153,10 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
         
         if k % 100 == 0:
             s_best, cost_best = randomization_sdr(X, H, y, n_randomizations=10,seed=seed, verbose=False)
-            symbol_error.append(np.sum(np.abs(s_best -s) > 1e-5))
+            symbol_error.append(int(np.sum(np.abs(s_best -s) > 1e-5)))
             if symbol_error[-1] == 0:
                 print(f"Converged to zero symbol error at iteration {k}")
-                k_max = k
+                k_max = int(k)
                 break
             
     return symbol_error, k_max
@@ -180,20 +180,31 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
 # plt.show()
 
 # Plot histogram of the symbol errors given diffent seed values
-n_seeds = 500
+n_seeds = 3
 symbol_errors = []
 k_list = []
 # plt.figure(figsize=(12, 8))
 for seed in range(n_seeds):
     print(f"Running PGD with seed {seed}...")
     symbol_error, k_max = projected_gradient_sdr(
-        H, C, y, s_true, max_iter=20000, step_size=1e-2, seed=seed, verbose=False
+        H, C, y, s_true, max_iter=50000, step_size=1e-2, seed=seed, verbose=False
     )
     symbol_errors.append(symbol_error)
+    #np.savetxt(f'symbol_error_seed_{seed}.csv', symbol_error, delimiter=',')
     k_list.append(k_max)
     
-# save symbol_errors and k_list to a csv file
-np.savetxt('symbol_errors.csv', symbol_errors, delimiter=',')
+# pad symbol_errors to have the same length
+max_length = max(len(se) for se in symbol_errors)
+padded_symbol_errors = np.zeros((len(symbol_errors), max_length))
+for i in range(len(symbol_errors)):
+    padded_symbol_errors[i, :len(symbol_errors[i])] = symbol_errors[i]
+
+# transpose to have iterations as rows
+padded_symbol_errors = padded_symbol_errors.T
+
+# save padded_symbol_errors to csv
+np.savetxt('symbol_errors.csv', padded_symbol_errors, delimiter=',')    
+# Save k_list to csv
 np.savetxt('k_list.csv', k_list, delimiter=',')
 
 
