@@ -180,7 +180,7 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
 # plt.show()
 
 # Plot histogram of the symbol errors given diffent seed values
-n_seeds = 3
+n_seeds = 25
 symbol_errors = []
 k_list = []
 # plt.figure(figsize=(12, 8))
