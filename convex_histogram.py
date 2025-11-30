@@ -54,50 +54,25 @@ y = np.zeros(2*nrx)
 y[:nrx] = yc.real.flatten()
 y[nrx:] = yc.imag.flatten()
 
-def mimo_detection(H, y, s, n_randomizations=200, verbose=False):
-    nrx, ntx = H.shape
 
-    # Construct the quadratic form:
-    #   x^T C x = [s; t]^T [ H^T H    -H^T y
-    #                           -y^T H    y^T y ] [s; t]
-    # which equals ||y - Hs||^2
-    Q = H.T @ H          # (n_tx, n_tx)
-    b = -H.T @ y         # (n_tx,)
-    c = y @ y.T  # scalar
+# Construct the quadratic form:
+#   x^T C x = [s; t]^T [ H^T H    -H^T y
+#                           -y^T H    y^T y ] [s; t]
+# which equals ||y - Hs||^2
+Q = H.T @ H          # (n_tx, n_tx)
+b = -H.T @ y         # (n_tx,)
+c = y @ y.T  # scalar
 
-    # Build block matrix C of size (n_tx+1, n_tx+1)
-    C = np.zeros((ntx + 1, ntx + 1))
-    C[:ntx, :ntx] = Q
-    C[:ntx, -1] = b
-    C[-1, :ntx] = b
-    C[-1, -1] = c
+# Build block matrix C of size (n_tx+1, n_tx+1)
+nrx, ntx = H.shape
+C = np.zeros((ntx + 1, ntx + 1))
+C[:ntx, :ntx] = Q
+C[:ntx, -1] = b
+C[-1, :ntx] = b
+C[-1, -1] = c
+    
 
-    # SDP variable X \in R^{(n_tx+1) x (n_tx+1)}, symmetric, PSD
-    dim = ntx + 1
-    X = cp.Variable((dim, dim), symmetric=True)
-
-    # Objective: minimize trace(C X)
-    objective = cp.Minimize(cp.trace(C @ X))
-
-    # Constraints:
-    constraints = []
-    # 1. X must be positive semidefinite
-    constraints.append(X >> 0)
-    # 2. diag(X) = 1  (corresponds to x_i^2 = 1 -> entries of x are ±1)
-    constraints.append(cp.diag(X) == 1)
-
-    problem = cp.Problem(objective, constraints)
-    problem.solve(solver=cp.SCS, verbose=verbose)
-
-    if problem.status not in ["optimal", "optimal_inaccurate"]:
-        raise RuntimeError(f"SDR solver did not converge. Status: {problem.status}")
-
-    X_star = X.value
-    return X_star
-
-
-
-def randomization_sdr(X_star, H, y, n_randomizations=200, verbose=False):
+def randomization_sdr(X_star, H, y, n_randomizations=50, seed=1, verbose=False):
     # Eigen-decomposition (for optional rank-1 approximation)
     eigvals, eigvecs = np.linalg.eigh(X_star)
 
@@ -105,7 +80,7 @@ def randomization_sdr(X_star, H, y, n_randomizations=200, verbose=False):
     #   z ~ N(0, X_star)
     # and project each to {-1,+1}^{dim}, then evaluate cost and keep the best.
 
-    rng = np.random.default_rng(123)
+    rng = np.random.default_rng(seed)
 
     # To sample from N(0, X_star), we can use Cholesky (if positive definite)
     # or eigen-decomposition for a robust approach.
@@ -123,7 +98,7 @@ def randomization_sdr(X_star, H, y, n_randomizations=200, verbose=False):
 
         # Recover s from x = [s; t]
         t_cand = x_candidate[-1]
-        s_cand = np.sign(x_candidate[:ntx*2] * t_cand)
+        s_cand = np.sign(x_candidate[:80] * t_cand)
 
         residual = np.abs(y - H @ s_cand)
         cost = float(np.dot(residual, residual))
@@ -135,34 +110,14 @@ def randomization_sdr(X_star, H, y, n_randomizations=200, verbose=False):
 
     if verbose:
         print(f"SDR cost (after randomization): {best_cost:.4f}")
-
+    
     return best_s, best_cost
 
-# print("=== MIMO instance ===")
-# print(f"H shape: {H.shape}")
-# print(f"True symbols s_true: {s_true}")
-# print(f"Noise std: {SNR_dB:.4f}")
 
-
-
-def projected_gradient_sdr(H, y, s, max_iter=300, step_size=1e-2, verbose=False):
-    nrx, ntx = H.shape
+def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verbose=False):
     
-    # Construct the quadratic form:
-    #   x^T C x = [s; t]^T [ H^T H    -H^T y
-    #                           -y^T H    y^T y ] [s; t]
-    # which equals ||y - Hs||^2
-    Q = H.T @ H          # (n_tx, n_tx)
-    b = -H.T @ y         # (n_tx,)
-    c = y @ y.T  # scalar
-
-    # Build block matrix C of size (n_tx+1, n_tx+1)
-    C = np.zeros((ntx + 1, ntx + 1))
-    C[:ntx, :ntx] = Q
-    C[:ntx, -1] = b
-    C[-1, :ntx] = b
-    C[-1, -1] = c
     
+
     d = C.shape[0]
 
     # Initialize with identity, which is PSD and diag=1
@@ -180,8 +135,8 @@ def projected_gradient_sdr(H, y, s, max_iter=300, step_size=1e-2, verbose=False)
         return X_psd
 
     obj_vals = []
-    t0 = time.time()
-
+    symbol_error = []
+    k_max = max_iter
     for k in range(max_iter):
         # Objective
         obj = float(np.trace(C @ X))
@@ -195,38 +150,59 @@ def projected_gradient_sdr(H, y, s, max_iter=300, step_size=1e-2, verbose=False)
 
         # Projection step
         X = project_psd_and_diag(Y)
+        
+        if k % 100 == 0:
+            s_best, cost_best = randomization_sdr(X, H, y, n_randomizations=10,seed=seed, verbose=False)
+            symbol_error.append(np.sum(np.abs(s_best -s) > 1e-5))
+            if symbol_error[-1] == 0:
+                print(f"Converged to zero symbol error at iteration {k}")
+                k_max = k
+                break
+            
+    return symbol_error, k_max
 
-    cpu_time = time.time() - t0
-    return X, obj_vals, cpu_time
 
-# # ---- Solve SDR-based detector ----
-# print("Running SDR-based detector...")
-# # keep track of CPU time
-# t0 = time.time()
 
-# X_star = mimo_detection(H, y, s_true, verbose=False)
-# s_sdr, sdr_cost = randomization_sdr(
-#     X_star, H, y, 50, verbose=True
-# )
-# #print(f"SDR solution s_sdr:   {s_sdr}")
-# print(f"SDR cost ||y - Hs||^2: {sdr_cost:.6f}")
-# print(f"SDR CPU time: {time.time() - t0:.4f} seconds")
-
-# # give a small margin of error for numerical inaccuracies
-# symbol_error = int(np.sum(np.abs(s_sdr - s_true) > 1e-5))
-# print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
 
 # ---- Solve SDR via Projected Gradient Descent ----
-print("Running PGD-based SDR solver...")
-X_pgd, obj_vals, pgd_time = projected_gradient_sdr(
-    H, y, s_true, max_iter=10000, step_size=1e-2, verbose=True
-)
-s_pgd, pgd_cost = randomization_sdr(
-    X_pgd, H, y, 50, verbose=True
-)
-#print(f"PGD SDR solution s_pgd:   {s_pgd}")
-print(f"PGD SDR cost ||y - Hs||^2: {pgd_cost:.6f}")
-print(f"PGD CPU time: {pgd_time:.4f} seconds")  
-symbol_error = int(np.sum(np.abs(s_pgd - s_true) > 1e-5))
-print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
+# print("Running PGD-based SDR solver...")
+# symbol_error, k_max = projected_gradient_sdr(
+#     H, C, y, s_true, max_iter=10000, step_size=1e-2, verbose=True
+# )
 
+# #plot symbol error over iterations
+# plt.figure()
+# plt.plot(np.arange(0, k_max+1, 100), symbol_error, marker='o')
+# plt.xlabel('Iteration')
+# plt.ylabel('Symbol Errors')
+# plt.title('Symbol Errors over PGD Iterations')
+# plt.grid(True)
+# plt.show()
+
+# Plot histogram of the symbol errors given diffent seed values
+n_seeds = 500
+symbol_errors = []
+k_list = []
+# plt.figure(figsize=(12, 8))
+for seed in range(n_seeds):
+    print(f"Running PGD with seed {seed}...")
+    symbol_error, k_max = projected_gradient_sdr(
+        H, C, y, s_true, max_iter=20000, step_size=1e-2, seed=seed, verbose=False
+    )
+    symbol_errors.append(symbol_error)
+    k_list.append(k_max)
+    
+# save symbol_errors and k_list to a csv file
+np.savetxt('symbol_errors.csv', symbol_errors, delimiter=',')
+np.savetxt('k_list.csv', k_list, delimiter=',')
+
+
+
+#     plt.subplot(2, 3, seed + 1)
+#     plt.plot(symbol_error, marker='o')
+#     plt.xlabel('Iteration')
+#     plt.ylabel('Symbol Errors')
+#     plt.title(f'Seed {seed}')
+#     plt.grid(True)
+# plt.tight_layout()
+# plt.show()
