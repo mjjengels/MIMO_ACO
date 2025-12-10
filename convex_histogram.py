@@ -214,6 +214,7 @@ for seed in range(n_seeds):
     symbol_error, k_max, ss_used, L, cpu_time = projected_gradient_sdr(
         H, C, y, s_true, max_iter=50000, step_size=None, seed=seed, verbose=False
     )
+    
     symbol_errors.append(symbol_error)
     #np.savetxt(f'symbol_error_seed_{seed}.csv', symbol_error, delimiter=',')
     k_list.append(k_max)
