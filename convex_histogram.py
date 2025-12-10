@@ -114,7 +114,7 @@ def randomization_sdr(X_star, H, y, n_randomizations=50, seed=1, verbose=False):
     return best_s, best_cost
 
 
-def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verbose=False):
+def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=None, verbose=False):
     
     
 
@@ -122,6 +122,26 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
 
     # Initialize with identity, which is PSD and diag=1
     X = np.eye(d)
+
+     # ---- Compute Lipschitz constant L = ||C||₂ ----
+    # ||C||₂ = grootste eigenwaarde van C
+    # Dit is de spectrale norm (maximale singular value)
+    L = np.linalg.norm(C, ord=2)  # Spectral norm: largest singular value
+    
+    if verbose:
+        print(f"[Lipschitz Info] ||C||₂ = {L:.6f}")
+        print(f"[Lipschitz Info] Safe step_size ≤ {1/L:.6f}")
+    
+    # Als step_size niet gegeven, zet het op 0.9/L (conservatief, 90% van veilige waarde)
+    if step_size is None:
+        step_size = 0.9 / L
+        if verbose:
+            print(f"[Lipschitz Info] Auto step_size = {step_size:.6f}")
+    elif step_size > 1/L:
+        # Waarschuwing: gebruiker kiest onveilige stap-grootte
+        print(f"[WARNING] step_size={step_size:.6f} > 1/L={1/L:.6f}")
+        print(f"[WARNING] Dit kan tot divergentie leiden! Kies step_size ≤ {1/L:.6f}")
+
 
     def project_psd_and_diag(X_in):
         # Symmetrize
@@ -137,6 +157,8 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
     obj_vals = []
     symbol_error = []
     k_max = max_iter
+    t0 = time.time()
+
     for k in range(max_iter):
         # Objective
         obj = float(np.trace(C @ X))
@@ -158,8 +180,8 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
                 print(f"Converged to zero symbol error at iteration {k}")
                 k_max = int(k)
                 break
-            
-    return symbol_error, k_max
+    cpu_time = time.time() - t0        
+    return symbol_error, k_max, step_size, L, cpu_time
 
 
 
@@ -183,15 +205,22 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=1e-2, verb
 n_seeds = 25
 symbol_errors = []
 k_list = []
+step_size_used = []
+L_value = []
+
 # plt.figure(figsize=(12, 8))
 for seed in range(n_seeds):
     print(f"Running PGD with seed {seed}...")
-    symbol_error, k_max = projected_gradient_sdr(
-        H, C, y, s_true, max_iter=50000, step_size=1e-2, seed=seed, verbose=False
+    symbol_error, k_max, ss_used, L, cpu_time = projected_gradient_sdr(
+        H, C, y, s_true, max_iter=50000, step_size=None, seed=seed, verbose=False
     )
+    
     symbol_errors.append(symbol_error)
     #np.savetxt(f'symbol_error_seed_{seed}.csv', symbol_error, delimiter=',')
     k_list.append(k_max)
+    step_size_used.append(ss_used)
+    L_value.append(L)
+    print(f"Seed {seed}: Completed in {cpu_time:.2f} seconds with step size {ss_used:.6f} and L {L:.6f}")
     
 # pad symbol_errors to have the same length
 max_length = max(len(se) for se in symbol_errors)
