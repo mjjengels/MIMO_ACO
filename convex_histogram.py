@@ -98,7 +98,7 @@ def randomization_sdr(X_star, H, y, n_randomizations=50, seed=1, verbose=False):
 
         # Recover s from x = [s; t]
         t_cand = x_candidate[-1]
-        s_cand = np.sign(x_candidate[:80])
+        s_cand = np.sign(x_candidate[:80] * t_cand)
 
         residual = np.abs(y - H @ s_cand)
         cost = float(np.dot(residual, residual))
@@ -202,7 +202,7 @@ def projected_gradient_sdr(H,C, y, s, max_iter=300, seed=1, step_size=None, verb
 # plt.show()
 
 # Plot histogram of the symbol errors given diffent seed values
-n_seeds = 25
+n_seeds = 3
 symbol_errors = []
 k_list = []
 step_size_used = []
