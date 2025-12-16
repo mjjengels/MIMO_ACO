@@ -56,9 +56,6 @@ y[nrx:] = yc.imag.flatten()
 
 
 # Construct the quadratic form:
-#   x^T C x = [s; t]^T [ H^T H    -H^T y
-#                           -y^T H    y^T y ] [s; t]
-# which equals ||y - Hs||^2
 Q = H.T @ H          # (n_tx, n_tx)
 b = -H.T @ y         # (n_tx,)
 c = y @ y.T  # scalar
@@ -73,7 +70,7 @@ C[-1, -1] = c
     
 
 def randomization_sdr(X_star, H, y, n_randomizations=50, seed=1, verbose=False):
-    # Eigen-decomposition (for optional rank-1 approximation)
+    # Eigen-decomposition
     eigvals, eigvecs = np.linalg.eigh(X_star)
 
     # We generate L random vectors with covariance X_star:
@@ -82,15 +79,13 @@ def randomization_sdr(X_star, H, y, n_randomizations=50, seed=1, verbose=False):
 
     rng = np.random.default_rng(seed)
 
-    # To sample from N(0, X_star), we can use Cholesky (if positive definite)
-    # or eigen-decomposition for a robust approach.
     eigvals_clipped = np.clip(eigvals, a_min=0.0, a_max=None)
     # Build square root of X_star: X_star = U diag(eigvals) U^T
     # sqrt(X_star) = U diag(sqrt(eigvals_clipped)) U^T
     sqrt_diag = np.sqrt(eigvals_clipped)
     sqrt_X = eigvecs @ np.diag(sqrt_diag)
     for _ in range(n_randomizations):
-        # Sample z ~ N(0, X_star) by drawing z0 ~ N(0, I) and mapping via sqrt_X
+        # Sample z ~ N(0, X_star)
         z0 = rng.normal(0.0, 1.0, size=sqrt_X.shape[0])  # dim = ntx + 1
         z = sqrt_X @ z0
 
