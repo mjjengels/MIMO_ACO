@@ -123,7 +123,7 @@ def randomization_sdr(X_star, H, y, n_randomizations=200, verbose=False):
 
         # Recover s from x = [s; t]
         t_cand = x_candidate[-1]
-        s_cand = np.sign(x_candidate[:ntx*2] * t_cand)
+        s_cand = np.sign(x_candidate[:ntx*2])
 
         residual = np.abs(y - H @ s_cand)
         cost = float(np.dot(residual, residual))
