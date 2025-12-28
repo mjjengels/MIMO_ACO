@@ -174,16 +174,25 @@ def projected_gradient_sdr(H, y, s, max_iter=300, step_size=1e-2, verbose=False)
     obj_vals = []
     t0 = time.time()
 
+    grad = step_size * C 
     for k in range(max_iter):
         # Objective
         obj = float(np.trace(C @ X))
         obj_vals.append(obj)
 
-        if verbose and (k % 20 == 0 or k == max_iter - 1):
+        if verbose and (k % 250 == 0 or k == max_iter - 1):
             print(f"[PGD] iter {k:4d}, objective = {obj:.6f}")
+        
+        # Check convergence only after enough iterations
+        if k >= 100 and k % 100 == 0 and abs(obj_vals[-1] - obj_vals[-100]) < 1e-3:
+            if verbose:
+                print(f"[PGD] Converged at iteration {k}.")
+            break
+            
+
 
         # Gradient step: grad f(X) = C
-        Y = X - step_size * C
+        Y = X - grad
 
         # Projection step
         X = project_psd_and_diag(Y)
@@ -193,32 +202,58 @@ def projected_gradient_sdr(H, y, s, max_iter=300, step_size=1e-2, verbose=False)
 
 # # ---- Solve SDR-based detector ----
 # print("Running SDR-based detector...")
-# # keep track of CPU time
-# t0 = time.time()
 
-# X_star = mimo_detection(H, y, s_true, verbose=False)
+# X_star = mimo_detection(H, y, s_true, verbose=True)
 # s_sdr, sdr_cost = randomization_sdr(
 #     X_star, H, y, 50, verbose=True
 # )
 # #print(f"SDR solution s_sdr:   {s_sdr}")
 # print(f"SDR cost ||y - Hs||^2: {sdr_cost:.6f}")
-# print(f"SDR CPU time: {time.time() - t0:.4f} seconds")
 
 # # give a small margin of error for numerical inaccuracies
 # symbol_error = int(np.sum(np.abs(s_sdr - s_true) > 1e-5))
 # print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
 
 # ---- Solve SDR via Projected Gradient Descent ----
-print("Running PGD-based SDR solver...")
-X_pgd, obj_vals, pgd_time = projected_gradient_sdr(
-    H, y, s_true, max_iter=10000, step_size=1e-2, verbose=True
-)
-s_pgd, pgd_cost = randomization_sdr(
-    X_pgd, H, y, 50, verbose=True
-)
-#print(f"PGD SDR solution s_pgd:   {s_pgd}")
-print(f"PGD SDR cost ||y - Hs||^2: {pgd_cost:.6f}")
-print(f"PGD CPU time: {pgd_time:.4f} seconds")  
-symbol_error = int(np.sum(np.abs(s_pgd - s_true) > 1e-5))
-print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
+# print("Running PGD-based SDR solver...")
+# X_pgd, objvals, pgd_time = projected_gradient_sdr(
+#     H, y, s_true, max_iter=15000, step_size=1e-2, verbose=True
+# )
+# s_pgd, pgd_cost = randomization_sdr(
+#     X_pgd, H, y, 50, verbose=True
+# )
+# #print(f"PGD SDR solution s_pgd:   {s_pgd}")
+# print(f"PGD SDR cost ||y - Hs||^2: {pgd_cost:.6f}")
+# print(f"PGD CPU time: {pgd_time:.4f} seconds")  
+# symbol_error = int(np.sum(np.abs(s_pgd - s_true) > 1e-5))
+# print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
 
+# # save objvals to csv
+# np.savetxt("pgd_objvals.csv", np.array(objvals), delimiter=",")
+
+# try again with other step sizes
+step_sizes = [1e-1, 5e-2, 1e-2, 5e-3, 1e-3]
+plt.figure()
+for step_size in step_sizes:
+    # save time for each step size
+    t0 = time.time()
+    
+    X_pgd, objvals, pgd_time = projected_gradient_sdr(
+        H, y, s_true, max_iter=100000, step_size=step_size, verbose=True
+    )
+    time_taken = time.time() - t0
+    print(f"Step size: {step_size}, Time taken: {time_taken:.4f} seconds")
+    s_sdr, pgd_cost = randomization_sdr(
+        X_pgd, H, y, 50, verbose=True
+    )
+    print(f"PGD SDR cost ||y - Hs||^2: {pgd_cost:.6f}")
+    symbol_error = int(np.sum(np.abs(s_sdr - s_true) > 1e-5))
+    print(f"SDR symbol errors: {symbol_error} out of {2*ntx}")
+    plt.semilogy(objvals, label=f"step size={step_size}")
+plt.xlabel("Iteration")
+plt.ylabel("Objective value")
+plt.title("PGD SDR Objective Convergence for Different Step Sizes")
+plt.legend()
+plt.grid()
+plt.savefig("pgd_sdr_convergence.png")
+plt.show()
